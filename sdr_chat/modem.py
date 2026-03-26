@@ -58,47 +58,52 @@ class BPSKModem:
         preamble = bytes([0x55]) * self.config.frame_preamble_bytes
         return preamble + SYNC_WORD + length + payload
 
-    def _extract_frames(self, data: bytes) -> list[bytes]:
-        frames: list[bytes] = []
-        search_from = 0
-        while True:
-            sync_index = data.find(self._header, search_from)
-            if sync_index < 0:
-                break
-            length_index = sync_index + len(self._header)
-            if len(data) < length_index + 2:
-                break
-            payload_length = int.from_bytes(data[length_index:length_index + 2], "big")
-            payload_start = length_index + 2
-            payload_end = payload_start + payload_length
-            if len(data) < payload_end:
-                break
-            frames.append(data[payload_start:payload_end])
-            search_from = payload_end
-        return frames
-
     def _find_next_frame(self) -> tuple[bytes, int] | None:
         candidates: list[tuple[int, int, bytes]] = []
         sps = self.config.samples_per_symbol
-        min_header_symbols = len(self._header) * 8
+        header_bits = self._bytes_to_bits(self._header)
+        header_str = "".join(str(b) for b in header_bits)
+        min_header_symbols = len(header_bits)
+        
         for phase in range(sps):
             symbols = self._slice_symbols(self._rx_samples, phase, sps)
             if len(symbols) < (min_header_symbols + 1):
                 continue
             bits = self._differential_decode(symbols)
-            data = self._bits_to_bytes(bits)
-            frames = self._extract_frames(data)
-            if not frames:
-                continue
-            header_index = data.find(self._header)
-            if header_index < 0:
-                continue
-            first_payload = frames[0]
-            consumed_bytes = header_index + len(self._header) + 2 + len(first_payload)
-            consumed_symbols = 1 + (consumed_bytes * 8)
-            consumed_samples = phase + (consumed_symbols * sps)
-            if consumed_samples <= len(self._rx_samples):
-                candidates.append((header_index, consumed_samples, first_payload))
+            bits_str = "".join(str(b) for b in bits)
+            
+            bit_search_start = 0
+            while True:
+                header_bit_idx = bits_str.find(header_str, bit_search_start)
+                if header_bit_idx < 0:
+                    break
+                
+                length_bit_idx = header_bit_idx + len(header_bits)
+                if len(bits) < length_bit_idx + 16:
+                    break
+                    
+                length_bits = bits[length_bit_idx : length_bit_idx + 16]
+                length_bytes = self._bits_to_bytes(length_bits)
+                payload_length = int.from_bytes(length_bytes, "big")
+                
+                payload_start_bit = length_bit_idx + 16
+                payload_end_bit = payload_start_bit + (payload_length * 8)
+                
+                if len(bits) < payload_end_bit:
+                    break
+                    
+                payload_bits = bits[payload_start_bit:payload_end_bit]
+                payload_bytes = self._bits_to_bytes(payload_bits)
+                
+                consumed_bits = payload_end_bit
+                consumed_symbols = 1 + consumed_bits
+                consumed_samples = phase + (consumed_symbols * sps)
+                
+                if consumed_samples <= len(self._rx_samples):
+                    candidates.append((header_bit_idx, consumed_samples, payload_bytes))
+                
+                bit_search_start = payload_end_bit
+                
         if not candidates:
             return None
         _, consumed_samples, payload = min(candidates, key=lambda item: item[0])

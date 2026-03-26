@@ -5,14 +5,12 @@ import tkinter as tk
 
 from .config import AppConfig, RadioConfig
 from .gui import ChatGUI
-from .link import LinkManager
-from .radio import build_radio
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SDR packet radio chat")
-    parser.add_argument("--callsign", required=True, help="Local AX.25-style callsign, e.g. N0CALL-1")
-    parser.add_argument("--peer", required=True, help="Peer callsign")
+    parser.add_argument("--callsign", default="", help="Local AX.25-style callsign, e.g. N0CALL-1")
+    parser.add_argument("--peer", default="", help="Peer callsign")
     parser.add_argument("--radio", choices=["mock", "pluto"], default="mock")
     parser.add_argument("--mock-channel", default="default")
     parser.add_argument("--uri", default="ip:192.168.2.1")
@@ -42,19 +40,11 @@ def main(argv: list[str] | None = None) -> int:
             rx_gain=args.rx_gain,
         ),
     )
-    radio = build_radio(config)
     root = tk.Tk()
-    gui: ChatGUI | None = None
-
-    def on_event(event) -> None:
-        if gui is not None:
-            gui.post_event(event)
-
-    link_manager = LinkManager(config, radio, on_event=on_event)
-    gui = ChatGUI(root, config, link_manager)
+    gui = ChatGUI(root, config)
 
     def on_close() -> None:
-        link_manager.stop()
+        gui.shutdown()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)

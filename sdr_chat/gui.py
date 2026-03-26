@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import queue
+import sys
+import traceback
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
@@ -115,7 +117,18 @@ class ChatGUI:
             self._update_station_title()
         except Exception as exc:
             self.link_manager = None
-            messagebox.showerror("Start failed", str(exc))
+            details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            log_path = self._write_error_log(details)
+            messagebox.showerror(
+                "Start failed",
+                f"{exc}\n\nPython: {sys.executable}\n\nDetailed traceback saved to:\n{log_path}",
+            )
+            self.post_event(
+                LinkEvent(
+                    kind="error",
+                    message=f"Start failed: {exc}. Details saved to {log_path}",
+                )
+            )
 
     def _send_message(self) -> None:
         text = self.entry.get("1.0", tk.END).strip()
@@ -191,3 +204,9 @@ class ChatGUI:
     def shutdown(self) -> None:
         if self.link_manager is not None:
             self.link_manager.stop()
+
+    def _write_error_log(self, details: str) -> str:
+        log_path = "sdr_chat_error.log"
+        with open(log_path, "w", encoding="utf-8") as handle:
+            handle.write(details)
+        return log_path

@@ -21,8 +21,12 @@ class BPSKModem:
         bits = self._bytes_to_bits(framed)
         samples_per_symbol = self.config.samples_per_symbol
         iq: list[complex] = []
+        current_symbol = complex(0.7, 0.0)
+        iq.extend(current_symbol for _ in range(samples_per_symbol))
         for bit in bits:
-            symbol = 0.7 if bit else -0.7
+            if bit:
+                current_symbol = -current_symbol
+            symbol = current_symbol
             iq.extend(complex(symbol, 0.0) for _ in range(samples_per_symbol))
         return iq
 
@@ -73,25 +77,22 @@ class BPSKModem:
         min_header_symbols = len(self._header) * 8
         for phase in range(sps):
             symbols = self._slice_symbols(self._rx_samples, phase, sps)
-            if len(symbols) < min_header_symbols:
+            if len(symbols) < (min_header_symbols + 1):
                 continue
-            for inverted in (False, True):
-                bits = [1 if symbol.real >= 0 else 0 for symbol in symbols]
-                if inverted:
-                    bits = [0 if bit else 1 for bit in bits]
-                data = self._bits_to_bytes(bits)
-                frames = self._extract_frames(data)
-                if not frames:
-                    continue
-                header_index = data.find(self._header)
-                if header_index < 0:
-                    continue
-                first_payload = frames[0]
-                consumed_bytes = header_index + len(self._header) + 2 + len(first_payload)
-                consumed_symbols = consumed_bytes * 8
-                consumed_samples = phase + (consumed_symbols * sps)
-                if consumed_samples <= len(self._rx_samples):
-                    candidates.append((header_index, consumed_samples, first_payload))
+            bits = self._differential_decode(symbols)
+            data = self._bits_to_bytes(bits)
+            frames = self._extract_frames(data)
+            if not frames:
+                continue
+            header_index = data.find(self._header)
+            if header_index < 0:
+                continue
+            first_payload = frames[0]
+            consumed_bytes = header_index + len(self._header) + 2 + len(first_payload)
+            consumed_symbols = 1 + (consumed_bytes * 8)
+            consumed_samples = phase + (consumed_symbols * sps)
+            if consumed_samples <= len(self._rx_samples):
+                candidates.append((header_index, consumed_samples, first_payload))
         if not candidates:
             return None
         _, consumed_samples, payload = min(candidates, key=lambda item: item[0])
@@ -112,6 +113,16 @@ class BPSKModem:
             chunk = samples[start:start + sps]
             symbols.append(sum(chunk) / sps)
         return symbols
+
+    @staticmethod
+    def _differential_decode(symbols: list[complex]) -> list[int]:
+        bits: list[int] = []
+        previous = symbols[0]
+        for current in symbols[1:]:
+            delta = previous.conjugate() * current
+            bits.append(0 if delta.real >= 0 else 1)
+            previous = current
+        return bits
 
     @staticmethod
     def _bytes_to_bits(data: bytes) -> list[int]:

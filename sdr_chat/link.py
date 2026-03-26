@@ -46,6 +46,14 @@ class LinkManager:
         self._outbound: queue.Queue[LinkPacket] = queue.Queue()
         self._tx_thread: threading.Thread | None = None
         self.last_peer_seen_at: float | None = None
+        self.rx_sample_batches = 0
+        self.rx_sample_count = 0
+        self.rx_avg_power = 0.0
+        self.rx_decode_failures = 0
+        self.rx_valid_packets = 0
+        self.rx_frame_candidates = 0
+        self.last_rx_error = "none"
+        self.last_rx_packet = "none"
 
     def start(self) -> None:
         if self.running:
@@ -120,11 +128,20 @@ class LinkManager:
                 self._emit("error", f"Unexpected transmit error: {exc}")
 
     def _handle_samples(self, samples: list[complex]) -> None:
-        for raw_frame in self.modem.demodulate(samples):
+        self.rx_sample_batches += 1
+        self.rx_sample_count += len(samples)
+        if samples:
+            batch_power = sum((sample.real * sample.real) + (sample.imag * sample.imag) for sample in samples) / len(samples)
+            self.rx_avg_power = batch_power if self.rx_sample_batches == 1 else ((self.rx_avg_power * (self.rx_sample_batches - 1)) + batch_power) / self.rx_sample_batches
+        raw_frames = self.modem.demodulate(samples)
+        self.rx_frame_candidates += len(raw_frames)
+        for raw_frame in raw_frames:
             try:
                 frame = self._decode_frame(raw_frame)
                 packet = frame_to_packet(frame)
             except Exception as exc:
+                self.rx_decode_failures += 1
+                self.last_rx_error = str(exc)
                 self._emit("error", f"Frame decode failed: {exc}")
                 continue
             if packet.destination not in {self.config.callsign, "CQ"}:
@@ -135,6 +152,8 @@ class LinkManager:
             if packet.sequence:
                 self._seen_sequences.add(dedupe_key)
             self.last_peer_seen_at = time.time()
+            self.rx_valid_packets += 1
+            self.last_rx_packet = f"{packet.packet_type.value} from {packet.source}"
             self._handle_packet(packet)
 
     def _decode_frame(self, raw_frame: bytes):
@@ -208,3 +227,11 @@ class LinkManager:
             return f"Peer {self.config.peer_callsign}: not detected"
         age = max(0.0, time.time() - self.last_peer_seen_at)
         return f"Peer {self.config.peer_callsign}: detected ({age:.1f}s ago)"
+
+    def diagnostics_text(self) -> str:
+        return (
+            f"RX batches={self.rx_sample_batches} samples={self.rx_sample_count} "
+            f"avg_power={self.rx_avg_power:.6f} frame_candidates={self.rx_frame_candidates} "
+            f"valid_packets={self.rx_valid_packets} decode_failures={self.rx_decode_failures} "
+            f"last_packet={self.last_rx_packet} last_error={self.last_rx_error}"
+        )

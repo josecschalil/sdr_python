@@ -24,6 +24,7 @@ class ChatGUI:
         self.status_var = tk.StringVar(value="Idle")
         self.channel_var = tk.StringVar(value="Channel state: IDLE")
         self.peer_status_var = tk.StringVar(value=f"Peer {config.peer_callsign or '?'}: not detected")
+        self.diagnostics_var = tk.StringVar(value="RX diagnostics: unavailable")
         self.callsign_var = tk.StringVar(value=config.callsign)
         self.peer_var = tk.StringVar(value=config.peer_callsign)
         self.radio_var = tk.StringVar(value=config.radio_kind)
@@ -104,6 +105,7 @@ class ChatGUI:
         ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=5, sticky="w", padx=12)
         ttk.Label(controls, textvariable=self.channel_var).grid(row=1, column=0, columnspan=6, sticky="w", padx=6)
         ttk.Label(controls, textvariable=self.peer_status_var).grid(row=2, column=0, columnspan=6, sticky="w", padx=6)
+        ttk.Label(controls, textvariable=self.diagnostics_var).grid(row=3, column=0, columnspan=6, sticky="w", padx=6)
 
         chat = ttk.LabelFrame(top, text="Messages", padding=10)
         chat.pack(fill=tk.BOTH, expand=True)
@@ -205,6 +207,7 @@ class ChatGUI:
         self.root.title(f"SDR Packet Radio Chat - {name}")
         peer = self.peer_var.get().strip() or "?"
         self.peer_status_var.set(f"Peer {peer}: not detected")
+        self.diagnostics_var.set("RX diagnostics: unavailable")
 
     def _update_radio_fields(self) -> None:
         is_mock = self.radio_var.get() == "mock"
@@ -239,6 +242,7 @@ class ChatGUI:
                 owner = self.config.peer_callsign
             self.channel_var.set(f"Channel state: {self.link_manager.state.value} | TX owner: {owner}")
             self.peer_status_var.set(self.link_manager.peer_status_text())
+            self.diagnostics_var.set(f"RX diagnostics: {self.link_manager.diagnostics_text()}")
         self.chat_box.configure(state=tk.NORMAL)
         self.chat_box.insert(tk.END, f"[{event.kind.upper()}] {event.message}\n")
         self.chat_box.see(tk.END)

@@ -9,6 +9,12 @@ SYNC_WORD = bytes([0x55, 0xD3, 0x91, 0x7E])
 class BPSKModem:
     def __init__(self, config: RadioConfig) -> None:
         self.config = config
+        self._rx_samples: list[complex] = []
+        self._header = (bytes([0x55]) * self.config.frame_preamble_bytes) + SYNC_WORD
+        self._max_buffer_samples = max(
+            self.config.samples_per_symbol * 8 * (self.config.frame_preamble_bytes + 512),
+            self.config.rx_buffer_size * 4,
+        )
 
     def modulate(self, payload: bytes) -> list[complex]:
         framed = self._frame_payload(payload)
@@ -21,23 +27,21 @@ class BPSKModem:
         return iq
 
     def demodulate(self, samples: list[complex]) -> list[bytes]:
-        if len(samples) < self.config.samples_per_symbol * 16:
+        if samples:
+            self._rx_samples.extend(samples)
+        if len(self._rx_samples) > self._max_buffer_samples:
+            self._rx_samples = self._rx_samples[-self._max_buffer_samples:]
+        if len(self._rx_samples) < self.config.samples_per_symbol * len(self._header) * 8:
             return []
-        symbols = self._slice_symbols(samples)
-        bits = [1 if symbol.real >= 0 else 0 for symbol in symbols]
-        data = self._bits_to_bytes(bits)
-        return self._extract_frames(data)
-
-    def _slice_symbols(self, samples: list[complex]) -> list[complex]:
-        sps = self.config.samples_per_symbol
-        usable = len(samples) - (len(samples) % sps)
-        if usable <= 0:
-            return []
-        symbols: list[complex] = []
-        for index in range(0, usable, sps):
-            chunk = samples[index:index + sps]
-            symbols.append(sum(chunk) / sps)
-        return symbols
+        frames: list[bytes] = []
+        while True:
+            detection = self._find_next_frame()
+            if detection is None:
+                break
+            payload, consumed_samples = detection
+            frames.append(payload)
+            self._rx_samples = self._rx_samples[consumed_samples:]
+        return frames
 
     def _frame_payload(self, payload: bytes) -> bytes:
         length = len(payload).to_bytes(2, "big")
@@ -48,10 +52,10 @@ class BPSKModem:
         frames: list[bytes] = []
         search_from = 0
         while True:
-            sync_index = data.find(SYNC_WORD, search_from)
+            sync_index = data.find(self._header, search_from)
             if sync_index < 0:
                 break
-            length_index = sync_index + len(SYNC_WORD)
+            length_index = sync_index + len(self._header)
             if len(data) < length_index + 2:
                 break
             payload_length = int.from_bytes(data[length_index:length_index + 2], "big")
@@ -62,6 +66,52 @@ class BPSKModem:
             frames.append(data[payload_start:payload_end])
             search_from = payload_end
         return frames
+
+    def _find_next_frame(self) -> tuple[bytes, int] | None:
+        candidates: list[tuple[int, int, bytes]] = []
+        sps = self.config.samples_per_symbol
+        min_header_symbols = len(self._header) * 8
+        for phase in range(sps):
+            symbols = self._slice_symbols(self._rx_samples, phase, sps)
+            if len(symbols) < min_header_symbols:
+                continue
+            for inverted in (False, True):
+                bits = [1 if symbol.real >= 0 else 0 for symbol in symbols]
+                if inverted:
+                    bits = [0 if bit else 1 for bit in bits]
+                data = self._bits_to_bytes(bits)
+                frames = self._extract_frames(data)
+                if not frames:
+                    continue
+                header_index = data.find(self._header)
+                if header_index < 0:
+                    continue
+                first_payload = frames[0]
+                consumed_bytes = header_index + len(self._header) + 2 + len(first_payload)
+                consumed_symbols = consumed_bytes * 8
+                consumed_samples = phase + (consumed_symbols * sps)
+                if consumed_samples <= len(self._rx_samples):
+                    candidates.append((header_index, consumed_samples, first_payload))
+        if not candidates:
+            return None
+        _, consumed_samples, payload = min(candidates, key=lambda item: item[0])
+        consumed_samples = max(consumed_samples, sps)
+        return payload, consumed_samples
+
+    @staticmethod
+    def _slice_symbols(samples: list[complex], phase: int, sps: int | None = None) -> list[complex]:
+        if sps is None:
+            raise ValueError("samples per symbol must be provided")
+        usable = len(samples) - phase
+        symbol_count = usable // sps
+        if symbol_count <= 0:
+            return []
+        symbols: list[complex] = []
+        for symbol_index in range(symbol_count):
+            start = phase + (symbol_index * sps)
+            chunk = samples[start:start + sps]
+            symbols.append(sum(chunk) / sps)
+        return symbols
 
     @staticmethod
     def _bytes_to_bits(data: bytes) -> list[int]:

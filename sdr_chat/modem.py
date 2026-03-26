@@ -59,7 +59,8 @@ class BPSKModem:
         return preamble + SYNC_WORD + length + payload
 
     def _find_next_frame(self) -> tuple[bytes, int] | None:
-        candidates: list[tuple[int, int, bytes]] = []
+        # candidates will store: (header_bit_idx, sync_power, consumed_samples, payload_bytes)
+        candidates: list[tuple[int, float, int, bytes]] = []
         sps = self.config.samples_per_symbol
         header_bits = self._bytes_to_bits(self._header)
         header_str = "".join(str(b) for b in header_bits)
@@ -100,13 +101,19 @@ class BPSKModem:
                 consumed_samples = phase + (consumed_symbols * sps)
                 
                 if consumed_samples <= len(self._rx_samples):
-                    candidates.append((header_bit_idx, consumed_samples, payload_bytes))
+                    sync_power = sum(abs(s) for s in symbols[header_bit_idx : header_bit_idx + min_header_symbols])
+                    candidates.append((header_bit_idx, sync_power, consumed_samples, payload_bytes))
                 
                 bit_search_start = payload_end_bit
                 
         if not candidates:
             return None
-        _, consumed_samples, payload = min(candidates, key=lambda item: item[0])
+            
+        min_header_idx = min(cand[0] for cand in candidates)
+        first_packet_cands = [cand for cand in candidates if cand[0] <= min_header_idx + 1]
+        best_cand = max(first_packet_cands, key=lambda item: item[1])
+        
+        _, _, consumed_samples, payload = best_cand
         consumed_samples = max(consumed_samples, sps)
         return payload, consumed_samples
 

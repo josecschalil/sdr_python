@@ -12,7 +12,7 @@ class RadioConfig:
     intermediate_freq: int = 100_000
     tx_gain: float = -10.0
     rx_gain: float = 30.0
-    rx_buffer_size: int = 16384
+    rx_buffer_size: int = 131072
     frame_preamble_bytes: int = 32
 
 

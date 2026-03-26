@@ -87,6 +87,7 @@ class PlutoRadio(BaseRadio):
         self._pluto = None
         self._running = False
         self._rx_thread: threading.Thread | None = None
+        self._lock = threading.Lock()
 
     def start(self, on_samples: Callable[[list[complex]], None]) -> None:
         try:
@@ -127,7 +128,8 @@ class PlutoRadio(BaseRadio):
 
         def loop() -> None:
             while self._running:
-                samples = self._pluto.rx()
+                with self._lock:
+                    samples = self._pluto.rx()
                 if samples is None:
                     time.sleep(0.02)
                     continue
@@ -153,13 +155,14 @@ class PlutoRadio(BaseRadio):
             )
             for sample in iq_samples
         ]
-        try:
-            if hasattr(self._pluto, "tx_destroy_buffer"):
-                self._pluto.tx_destroy_buffer()
-        except Exception:
-            # Some pyadi-iio/libiio versions do not expose an active TX buffer yet.
-            pass
-        self._pluto.tx(clipped)
+        with self._lock:
+            try:
+                if hasattr(self._pluto, "tx_destroy_buffer"):
+                    self._pluto.tx_destroy_buffer()
+            except Exception:
+                # Some pyadi-iio/libiio versions do not expose an active TX buffer yet.
+                pass
+            self._pluto.tx(clipped)
 
 
 def build_radio(config: AppConfig) -> BaseRadio:

@@ -93,6 +93,12 @@ class PlutoRadio(BaseRadio):
             import adi
         except ImportError as exc:
             raise RadioError("pyadi-iio is required for Pluto operation") from exc
+        except Exception as exc:
+            raise RadioError(
+                "Pluto dependencies are installed, but the native libiio runtime could not be loaded. "
+                "On Windows, install Analog Devices libiio/pylibiio support and ensure the libiio DLL is on PATH. "
+                f"Original error: {exc}"
+            ) from exc
 
         uri = (self.config.pluto_uri or "").strip()
         if not uri:

@@ -131,7 +131,8 @@ class PlutoRadio(BaseRadio):
                 if samples is None:
                     time.sleep(0.02)
                     continue
-                on_samples(list(samples))
+                normalized = [(sample / 32768.0) for sample in samples]
+                on_samples(normalized)
 
         self._rx_thread = threading.Thread(target=loop, daemon=True)
         self._rx_thread.start()
@@ -147,8 +148,8 @@ class PlutoRadio(BaseRadio):
             raise RadioError("Pluto radio not started")
         clipped = [
             complex(
-                max(-1.0, min(1.0, sample.real)),
-                max(-1.0, min(1.0, sample.imag)),
+                int(max(-1.0, min(1.0, sample.real)) * 32767.0),
+                int(max(-1.0, min(1.0, sample.imag)) * 32767.0),
             )
             for sample in iq_samples
         ]

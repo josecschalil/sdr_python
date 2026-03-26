@@ -100,19 +100,20 @@ class PlutoRadio(BaseRadio):
 
         try:
             self._pluto = adi.Pluto(uri)
+            self._pluto.sample_rate = int(self.config.radio.sample_rate)
+            self._pluto.rx_lo = int(self.config.radio.center_freq)
+            self._pluto.tx_lo = int(self.config.radio.center_freq)
+            self._pluto.rx_rf_bandwidth = int(self.config.radio.sample_rate)
+            self._pluto.tx_rf_bandwidth = int(self.config.radio.sample_rate)
+            self._pluto.rx_hardwaregain_chan0 = float(self.config.radio.rx_gain)
+            self._pluto.tx_hardwaregain_chan0 = float(self.config.radio.tx_gain)
+            self._pluto.rx_buffer_size = int(self.config.radio.rx_buffer_size)
+            self._pluto.gain_control_mode_chan0 = "manual"
         except Exception as exc:
+            self._pluto = None
             raise RadioError(
                 f"Failed to connect to Pluto at '{uri}'. Check the URI, USB/Ethernet connection, and that the device is reachable. Original error: {exc}"
             ) from exc
-        self._pluto.sample_rate = int(self.config.radio.sample_rate)
-        self._pluto.rx_lo = int(self.config.radio.center_freq)
-        self._pluto.tx_lo = int(self.config.radio.center_freq)
-        self._pluto.rx_rf_bandwidth = int(self.config.radio.sample_rate)
-        self._pluto.tx_rf_bandwidth = int(self.config.radio.sample_rate)
-        self._pluto.rx_hardwaregain_chan0 = float(self.config.radio.rx_gain)
-        self._pluto.tx_hardwaregain_chan0 = float(self.config.radio.tx_gain)
-        self._pluto.rx_buffer_size = int(self.config.radio.rx_buffer_size)
-        self._pluto.gain_control_mode_chan0 = "manual"
 
         self._running = True
 

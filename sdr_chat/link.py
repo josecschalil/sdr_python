@@ -45,6 +45,7 @@ class LinkManager:
         self._seen_sequences: set[tuple[str, int]] = set()
         self._outbound: queue.Queue[LinkPacket] = queue.Queue()
         self._tx_thread: threading.Thread | None = None
+        self.last_peer_seen_at: float | None = None
 
     def start(self) -> None:
         if self.running:
@@ -99,6 +100,10 @@ class LinkManager:
         packet = self._queue_packet(PacketType.DATA, payload=text)
         self._emit("tx", f"You: {text}", packet)
 
+    def ping_peer(self) -> None:
+        packet = self._queue_packet(PacketType.HEARTBEAT, payload="ping")
+        self._emit("status", f"Peer ping sent to {self.config.peer_callsign}", packet)
+
     def _tx_loop(self) -> None:
         while self.running:
             try:
@@ -129,6 +134,7 @@ class LinkManager:
                 continue
             if packet.sequence:
                 self._seen_sequences.add(dedupe_key)
+            self.last_peer_seen_at = time.time()
             self._handle_packet(packet)
 
     def _decode_frame(self, raw_frame: bytes):
@@ -160,6 +166,15 @@ class LinkManager:
             self._queue_packet(PacketType.ACK, ack_for=packet.sequence, payload="Message received")
             return
 
+        if packet.packet_type == PacketType.HEARTBEAT:
+            self._emit("status", f"{packet.source} is reachable", packet)
+            self._queue_packet(PacketType.STATUS, payload="online")
+            return
+
+        if packet.packet_type == PacketType.STATUS:
+            self._emit("status", f"{packet.source} responded: {packet.payload}", packet)
+            return
+
         if packet.packet_type == PacketType.ACK:
             self._emit("ack", f"ACK received for sequence {packet.ack_for}", packet)
             return
@@ -187,3 +202,9 @@ class LinkManager:
 
     def _emit(self, kind: str, message: str, packet: LinkPacket | None = None) -> None:
         self.on_event(LinkEvent(kind=kind, message=message, packet=packet))
+
+    def peer_status_text(self) -> str:
+        if self.last_peer_seen_at is None:
+            return f"Peer {self.config.peer_callsign}: not detected"
+        age = max(0.0, time.time() - self.last_peer_seen_at)
+        return f"Peer {self.config.peer_callsign}: detected ({age:.1f}s ago)"

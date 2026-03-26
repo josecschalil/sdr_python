@@ -23,6 +23,7 @@ class ChatGUI:
 
         self.status_var = tk.StringVar(value="Idle")
         self.channel_var = tk.StringVar(value="Channel state: IDLE")
+        self.peer_status_var = tk.StringVar(value=f"Peer {config.peer_callsign or '?'}: not detected")
         self.callsign_var = tk.StringVar(value=config.callsign)
         self.peer_var = tk.StringVar(value=config.peer_callsign)
         self.radio_var = tk.StringVar(value=config.radio_kind)
@@ -99,8 +100,10 @@ class ChatGUI:
         ttk.Button(controls, text="Request TX", command=self._request_tx).grid(row=0, column=1, padx=6, pady=6)
         ttk.Button(controls, text="Grant TX", command=self._grant_tx).grid(row=0, column=2, padx=6, pady=6)
         ttk.Button(controls, text="Release TX", command=self._release_tx).grid(row=0, column=3, padx=6, pady=6)
-        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=4, sticky="w", padx=12)
-        ttk.Label(controls, textvariable=self.channel_var).grid(row=1, column=0, columnspan=5, sticky="w", padx=6)
+        ttk.Button(controls, text="Ping Peer", command=self._ping_peer).grid(row=0, column=4, padx=6, pady=6)
+        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=5, sticky="w", padx=12)
+        ttk.Label(controls, textvariable=self.channel_var).grid(row=1, column=0, columnspan=6, sticky="w", padx=6)
+        ttk.Label(controls, textvariable=self.peer_status_var).grid(row=2, column=0, columnspan=6, sticky="w", padx=6)
 
         chat = ttk.LabelFrame(top, text="Messages", padding=10)
         chat.pack(fill=tk.BOTH, expand=True)
@@ -168,6 +171,12 @@ class ChatGUI:
             return
         self.link_manager.grant_tx()
 
+    def _ping_peer(self) -> None:
+        if self.link_manager is None:
+            messagebox.showwarning("Link not started", "Start the link first.")
+            return
+        self.link_manager.ping_peer()
+
     def _read_config_from_form(self) -> AppConfig:
         callsign = self.callsign_var.get().strip()
         peer = self.peer_var.get().strip()
@@ -194,6 +203,8 @@ class ChatGUI:
     def _update_station_title(self) -> None:
         name = self.callsign_var.get().strip() or "Unconfigured"
         self.root.title(f"SDR Packet Radio Chat - {name}")
+        peer = self.peer_var.get().strip() or "?"
+        self.peer_status_var.set(f"Peer {peer}: not detected")
 
     def _update_radio_fields(self) -> None:
         is_mock = self.radio_var.get() == "mock"
@@ -227,6 +238,7 @@ class ChatGUI:
             elif self.link_manager.state.value == "REMOTE_TX":
                 owner = self.config.peer_callsign
             self.channel_var.set(f"Channel state: {self.link_manager.state.value} | TX owner: {owner}")
+            self.peer_status_var.set(self.link_manager.peer_status_text())
         self.chat_box.configure(state=tk.NORMAL)
         self.chat_box.insert(tk.END, f"[{event.kind.upper()}] {event.message}\n")
         self.chat_box.see(tk.END)

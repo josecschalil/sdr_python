@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from .config import RadioConfig
 
 
@@ -11,6 +13,7 @@ class BPSKModem:
         self.config = config
         self._rx_samples: list[complex] = []
         self._header = (bytes([0x55]) * self.config.frame_preamble_bytes) + SYNC_WORD
+        self._rx_mix_index = 0
         self._max_buffer_samples = max(
             self.config.samples_per_symbol * 8 * (self.config.frame_preamble_bytes + 512),
             self.config.rx_buffer_size * 4,
@@ -22,17 +25,20 @@ class BPSKModem:
         samples_per_symbol = self.config.samples_per_symbol
         iq: list[complex] = []
         current_symbol = complex(0.7, 0.0)
-        iq.extend(current_symbol for _ in range(samples_per_symbol))
+        iq.extend(self._apply_subcarrier(current_symbol, index) for index in range(samples_per_symbol))
+        sample_index = samples_per_symbol
         for bit in bits:
             if bit:
                 current_symbol = -current_symbol
             symbol = current_symbol
-            iq.extend(complex(symbol, 0.0) for _ in range(samples_per_symbol))
+            for _ in range(samples_per_symbol):
+                iq.append(self._apply_subcarrier(symbol, sample_index))
+                sample_index += 1
         return iq
 
     def demodulate(self, samples: list[complex]) -> list[bytes]:
         if samples:
-            self._rx_samples.extend(samples)
+            self._rx_samples.extend(self._mix_down(samples))
         if len(self._rx_samples) > self._max_buffer_samples:
             self._rx_samples = self._rx_samples[-self._max_buffer_samples:]
         if len(self._rx_samples) < self.config.samples_per_symbol * len(self._header) * 8:
@@ -123,6 +129,20 @@ class BPSKModem:
             bits.append(0 if delta.real >= 0 else 1)
             previous = current
         return bits
+
+    def _apply_subcarrier(self, symbol: complex, sample_index: int) -> complex:
+        angle = 2.0 * math.pi * self.config.intermediate_freq * sample_index / self.config.sample_rate
+        carrier = complex(math.cos(angle), math.sin(angle))
+        return symbol * carrier
+
+    def _mix_down(self, samples: list[complex]) -> list[complex]:
+        mixed: list[complex] = []
+        for sample in samples:
+            angle = -2.0 * math.pi * self.config.intermediate_freq * self._rx_mix_index / self.config.sample_rate
+            carrier = complex(math.cos(angle), math.sin(angle))
+            mixed.append(sample * carrier)
+            self._rx_mix_index += 1
+        return mixed
 
     @staticmethod
     def _bytes_to_bits(data: bytes) -> list[int]:

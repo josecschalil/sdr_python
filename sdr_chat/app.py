@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-rate", type=int, default=1_000_000)
     parser.add_argument("--symbol-rate", type=int, default=10_000)
     parser.add_argument("--samples-per-symbol", type=int, default=20)
+    parser.add_argument("--if-freq", type=int, default=100_000)
     parser.add_argument("--tx-gain", type=float, default=-10.0)
     parser.add_argument("--rx-gain", type=float, default=30.0)
     return parser
@@ -36,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
             sample_rate=args.sample_rate,
             symbol_rate=args.symbol_rate,
             samples_per_symbol=args.samples_per_symbol,
+            intermediate_freq=args.if_freq,
             tx_gain=args.tx_gain,
             rx_gain=args.rx_gain,
         ),

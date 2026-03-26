@@ -35,6 +35,7 @@ class ChatGUI:
         self.sample_rate_var = tk.StringVar(value=str(config.radio.sample_rate))
         self.symbol_rate_var = tk.StringVar(value=str(config.radio.symbol_rate))
         self.samples_per_symbol_var = tk.StringVar(value=str(config.radio.samples_per_symbol))
+        self.if_freq_var = tk.StringVar(value=str(config.radio.intermediate_freq))
         self.tx_gain_var = tk.StringVar(value=str(config.radio.tx_gain))
         self.rx_gain_var = tk.StringVar(value=str(config.radio.rx_gain))
 
@@ -86,14 +87,16 @@ class ChatGUI:
         ttk.Entry(info, textvariable=self.tx_gain_var, width=18).grid(row=3, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(info, text="RX Gain").grid(row=3, column=2, sticky="w", padx=4, pady=4)
         ttk.Entry(info, textvariable=self.rx_gain_var, width=18).grid(row=3, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(info, text="Initial TX Owner").grid(row=3, column=4, sticky="w", padx=4, pady=4)
+        ttk.Label(info, text="IF Freq").grid(row=3, column=4, sticky="w", padx=4, pady=4)
+        ttk.Entry(info, textvariable=self.if_freq_var, width=14).grid(row=3, column=5, sticky="w", padx=4, pady=4)
+        ttk.Label(info, text="Initial TX Owner").grid(row=4, column=4, sticky="w", padx=4, pady=4)
         ttk.Combobox(
             info,
             textvariable=self.initial_tx_owner_var,
             values=("none", "local", "peer"),
             state="readonly",
             width=14,
-        ).grid(row=3, column=5, sticky="w", padx=4, pady=4)
+        ).grid(row=4, column=5, sticky="w", padx=4, pady=4)
 
         controls = ttk.LabelFrame(top, text="Link Control", padding=10)
         controls.pack(fill=tk.X, pady=12)
@@ -197,6 +200,7 @@ class ChatGUI:
                 sample_rate=int(self.sample_rate_var.get().strip()),
                 symbol_rate=int(self.symbol_rate_var.get().strip()),
                 samples_per_symbol=int(self.samples_per_symbol_var.get().strip()),
+                intermediate_freq=int(self.if_freq_var.get().strip()),
                 tx_gain=float(self.tx_gain_var.get().strip()),
                 rx_gain=float(self.rx_gain_var.get().strip()),
             ),

@@ -9,6 +9,7 @@ class RadioConfig:
     sample_rate: int = 1_000_000
     symbol_rate: int = 10_000
     samples_per_symbol: int = 20
+    intermediate_freq: int = 100_000
     tx_gain: float = -10.0
     rx_gain: float = 30.0
     rx_buffer_size: int = 16384

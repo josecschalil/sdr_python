@@ -53,6 +53,12 @@ class LinkManager:
         self.radio.start(self._handle_samples)
         self._tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._tx_thread.start()
+        if self.config.initial_tx_owner.strip() == self.config.callsign:
+            self.state = ChannelState.GRANTED
+            self._emit("status", "Startup transmit permission assigned to this station")
+        elif self.config.initial_tx_owner.strip() == self.config.peer_callsign:
+            self.state = ChannelState.REMOTE_TX
+            self._emit("status", f"Startup transmit permission assigned to {self.config.peer_callsign}")
         self._emit("status", "Receiver started")
 
     def stop(self) -> None:
@@ -77,6 +83,14 @@ class LinkManager:
         self._queue_packet(PacketType.RELEASE, payload="TX release")
         self.state = ChannelState.IDLE
         self._emit("status", "Transmit permission released")
+
+    def grant_tx(self) -> None:
+        if self.state == ChannelState.GRANTED:
+            self._emit("warning", "You already hold transmit permission")
+            return
+        self.state = ChannelState.REMOTE_TX
+        self._queue_packet(PacketType.GRANT, payload="Manual TX grant")
+        self._emit("status", f"Transmit permission granted to {self.config.peer_callsign}")
 
     def send_text(self, text: str) -> None:
         if self.state != ChannelState.GRANTED:

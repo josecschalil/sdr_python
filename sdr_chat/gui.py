@@ -28,6 +28,7 @@ class ChatGUI:
         self.radio_var = tk.StringVar(value=config.radio_kind)
         self.mock_channel_var = tk.StringVar(value=config.mock_channel)
         self.uri_var = tk.StringVar(value=config.pluto_uri)
+        self.initial_tx_owner_var = tk.StringVar(value=config.initial_tx_owner or "none")
         self.center_freq_var = tk.StringVar(value=str(config.radio.center_freq))
         self.sample_rate_var = tk.StringVar(value=str(config.radio.sample_rate))
         self.symbol_rate_var = tk.StringVar(value=str(config.radio.symbol_rate))
@@ -83,14 +84,23 @@ class ChatGUI:
         ttk.Entry(info, textvariable=self.tx_gain_var, width=18).grid(row=3, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(info, text="RX Gain").grid(row=3, column=2, sticky="w", padx=4, pady=4)
         ttk.Entry(info, textvariable=self.rx_gain_var, width=18).grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(info, text="Initial TX Owner").grid(row=3, column=4, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            info,
+            textvariable=self.initial_tx_owner_var,
+            values=("none", "local", "peer"),
+            state="readonly",
+            width=14,
+        ).grid(row=3, column=5, sticky="w", padx=4, pady=4)
 
         controls = ttk.LabelFrame(top, text="Link Control", padding=10)
         controls.pack(fill=tk.X, pady=12)
         ttk.Button(controls, text="Start Link", command=self._start_link).grid(row=0, column=0, padx=6, pady=6)
         ttk.Button(controls, text="Request TX", command=self._request_tx).grid(row=0, column=1, padx=6, pady=6)
-        ttk.Button(controls, text="Release TX", command=self._release_tx).grid(row=0, column=2, padx=6, pady=6)
-        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=3, sticky="w", padx=12)
-        ttk.Label(controls, textvariable=self.channel_var).grid(row=1, column=0, columnspan=4, sticky="w", padx=6)
+        ttk.Button(controls, text="Grant TX", command=self._grant_tx).grid(row=0, column=2, padx=6, pady=6)
+        ttk.Button(controls, text="Release TX", command=self._release_tx).grid(row=0, column=3, padx=6, pady=6)
+        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=4, sticky="w", padx=12)
+        ttk.Label(controls, textvariable=self.channel_var).grid(row=1, column=0, columnspan=5, sticky="w", padx=6)
 
         chat = ttk.LabelFrame(top, text="Messages", padding=10)
         chat.pack(fill=tk.BOTH, expand=True)
@@ -152,17 +162,25 @@ class ChatGUI:
             return
         self.link_manager.release_tx()
 
+    def _grant_tx(self) -> None:
+        if self.link_manager is None:
+            messagebox.showwarning("Link not started", "Start the link first.")
+            return
+        self.link_manager.grant_tx()
+
     def _read_config_from_form(self) -> AppConfig:
         callsign = self.callsign_var.get().strip()
         peer = self.peer_var.get().strip()
         if not callsign or not peer:
             raise ValueError("Local and peer callsigns are required")
+        initial_tx_owner = self._resolve_initial_tx_owner(callsign, peer)
         return AppConfig(
             callsign=callsign,
             peer_callsign=peer,
             radio_kind=self.radio_var.get().strip() or "mock",
             mock_channel=self.mock_channel_var.get().strip() or "default",
             pluto_uri=self.uri_var.get().strip() or "ip:192.168.2.1",
+            initial_tx_owner=initial_tx_owner,
             radio=self.config.radio.__class__(
                 center_freq=int(self.center_freq_var.get().strip()),
                 sample_rate=int(self.sample_rate_var.get().strip()),
@@ -182,6 +200,14 @@ class ChatGUI:
         self.mock_channel_entry.configure(state=tk.NORMAL if is_mock else tk.DISABLED)
         self.uri_entry.configure(state=tk.DISABLED if is_mock else tk.NORMAL)
 
+    def _resolve_initial_tx_owner(self, callsign: str, peer: str) -> str:
+        selection = self.initial_tx_owner_var.get().strip().lower()
+        if selection == "local":
+            return callsign
+        if selection == "peer":
+            return peer
+        return ""
+
     def _poll_events(self) -> None:
         while True:
             try:
@@ -195,7 +221,12 @@ class ChatGUI:
         if event.kind in {"status", "warning", "error", "ack"}:
             self.status_var.set(event.message)
         if self.link_manager is not None:
-            self.channel_var.set(f"Channel state: {self.link_manager.state.value}")
+            owner = "none"
+            if self.link_manager.state.value == "GRANTED":
+                owner = self.config.callsign
+            elif self.link_manager.state.value == "REMOTE_TX":
+                owner = self.config.peer_callsign
+            self.channel_var.set(f"Channel state: {self.link_manager.state.value} | TX owner: {owner}")
         self.chat_box.configure(state=tk.NORMAL)
         self.chat_box.insert(tk.END, f"[{event.kind.upper()}] {event.message}\n")
         self.chat_box.see(tk.END)

@@ -22,4 +22,5 @@ class AppConfig:
     radio_kind: str = "mock"
     mock_channel: str = "default"
     pluto_uri: str = "ip:192.168.2.1"
+    initial_tx_owner: str = ""
     radio: RadioConfig = field(default_factory=RadioConfig)

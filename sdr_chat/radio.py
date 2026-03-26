@@ -94,7 +94,16 @@ class PlutoRadio(BaseRadio):
         except ImportError as exc:
             raise RadioError("pyadi-iio is required for Pluto operation") from exc
 
-        self._pluto = adi.Pluto(self.config.pluto_uri)
+        uri = (self.config.pluto_uri or "").strip()
+        if not uri:
+            raise RadioError("Pluto URI is required when radio mode is set to pluto")
+
+        try:
+            self._pluto = adi.Pluto(uri)
+        except Exception as exc:
+            raise RadioError(
+                f"Failed to connect to Pluto at '{uri}'. Check the URI, USB/Ethernet connection, and that the device is reachable. Original error: {exc}"
+            ) from exc
         self._pluto.sample_rate = int(self.config.radio.sample_rate)
         self._pluto.rx_lo = int(self.config.radio.center_freq)
         self._pluto.tx_lo = int(self.config.radio.center_freq)

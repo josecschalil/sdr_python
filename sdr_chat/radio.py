@@ -115,6 +115,8 @@ class PlutoRadio(BaseRadio):
             self._pluto.tx_hardwaregain_chan0 = float(self.config.radio.tx_gain)
             self._pluto.rx_buffer_size = int(self.config.radio.rx_buffer_size)
             self._pluto.gain_control_mode_chan0 = "manual"
+            if hasattr(self._pluto, "tx_cyclic_buffer"):
+                self._pluto.tx_cyclic_buffer = False
         except Exception as exc:
             self._pluto = None
             raise RadioError(
@@ -150,6 +152,12 @@ class PlutoRadio(BaseRadio):
             )
             for sample in iq_samples
         ]
+        try:
+            if hasattr(self._pluto, "tx_destroy_buffer"):
+                self._pluto.tx_destroy_buffer()
+        except Exception:
+            # Some pyadi-iio/libiio versions do not expose an active TX buffer yet.
+            pass
         self._pluto.tx(clipped)
 
 

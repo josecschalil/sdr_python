@@ -1,13 +1,13 @@
 %% ===================== RECEIVER =====================
 clear; clc;
 
-fs = 48000;
+fs = 96000;   % MUST match TX
 
 % Pluto SDR RX
 rx = sdrrx('Pluto');
 rx.CenterFrequency = 433e6;
 rx.BasebandSampleRate = fs;
-rx.SamplesPerFrame = 48000;
+rx.SamplesPerFrame = 96000;
 rx.OutputDataType = 'double';
 
 disp('Receiving...');
@@ -15,13 +15,11 @@ rxSignal = rx();
 
 release(rx);
 
-% FM Demodulation (simple)
+%% FM DEMODULATION
 demod = angle(rxSignal(2:end).*conj(rxSignal(1:end-1)));
-
-% Normalize
 demod = demod / max(abs(demod));
 
-% Bandpass filters for AFSK
+%% AFSK FILTERS
 bp1 = designfilt('bandpassiir','FilterOrder',4,...
     'HalfPowerFrequency1',1000,'HalfPowerFrequency2',1400,...
     'SampleRate',fs);
@@ -30,12 +28,12 @@ bp2 = designfilt('bandpassiir','FilterOrder',4,...
     'HalfPowerFrequency1',2000,'HalfPowerFrequency2',2400,...
     'SampleRate',fs);
 
-sig1 = filter(bp1, demod);
-sig2 = filter(bp2, demod);
+sig1 = filter(bp1, demod);   % 1200 Hz
+sig2 = filter(bp2, demod);   % 2200 Hz
 
-% Bit recovery
+%% BIT RECOVERY
 bitrate = 1200;
-samplesPerBit = fs/bitrate;
+samplesPerBit = fs/bitrate;   % = 80
 
 numBits = floor(length(sig1)/samplesPerBit);
 bits = zeros(1,numBits);
@@ -53,7 +51,7 @@ for i = 1:numBits
     end
 end
 
-% Convert bits → characters
+%% BITS → TEXT
 bits = bits(1:floor(length(bits)/8)*8);
 bytes = reshape(bits,8,[]).';
 chars = char(bin2dec(num2str(bytes)));

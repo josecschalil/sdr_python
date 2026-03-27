@@ -8,9 +8,9 @@ msg = 'HELLO JOSE';
 bits = reshape(dec2bin(msg,8).'-'0',1,[]);
 
 % Parameters
-fs = 48000;              % Audio sample rate
-bitrate = 1200;          % Bits per second
-samplesPerBit = fs/bitrate;
+fs = 96000;              % MUST be >= 65104
+bitrate = 1200;
+samplesPerBit = fs/bitrate;   % = 80 (perfect)
 
 f_mark = 1200;           % '1'
 f_space = 2200;          % '0'
@@ -31,19 +31,22 @@ end
 % Normalize
 afsk = afsk / max(abs(afsk));
 
-% Repeat signal for stability
+% Repeat signal (improves reception)
 afsk = repmat(afsk,1,5);
+
+% Convert to complex (required for Pluto)
+txSignal = afsk .* exp(1j*0);
 
 % Pluto SDR TX
 tx = sdrtx('Pluto');
-tx.CenterFrequency = 433e6;   % Adjust if needed
+tx.CenterFrequency = 433e6;
 tx.BasebandSampleRate = fs;
 tx.Gain = -10;
 
 disp('Transmitting...');
-transmitRepeat(tx, afsk.');
+transmitRepeat(tx, txSignal.');
 
-pause(10);   % transmit duration
+pause(10);
 
 release(tx);
 disp('Transmission stopped.');

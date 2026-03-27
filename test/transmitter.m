@@ -8,12 +8,12 @@ msg = 'HELLO JOSE';
 bits = reshape(dec2bin(msg,8).'-'0',1,[]);
 
 % Parameters
-fs = 96000;              % MUST be >= 65104
+fs = 96000;              % >= 65104 (Pluto requirement)
 bitrate = 1200;
-samplesPerBit = fs/bitrate;   % = 80 (perfect)
+samplesPerBit = fs/bitrate;   % = 80
 
-f_mark = 1200;           % '1'
-f_space = 2200;          % '0'
+f_mark = 1200;           % bit 1
+f_space = 2200;          % bit 0
 
 t = (0:samplesPerBit-1)/fs;
 
@@ -34,8 +34,8 @@ afsk = afsk / max(abs(afsk));
 % Repeat signal (improves reception)
 afsk = repmat(afsk,1,5);
 
-% Convert to complex (required for Pluto)
-txSignal = afsk .* exp(1j*0);
+% ✅ Convert to COMPLEX (FIXED)
+txSignal = complex(afsk, zeros(size(afsk)));
 
 % Pluto SDR TX
 tx = sdrtx('Pluto');

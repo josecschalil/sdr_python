@@ -28,8 +28,8 @@ bp2 = designfilt('bandpassiir','FilterOrder',4,...
     'HalfPowerFrequency1',2000,'HalfPowerFrequency2',2400,...
     'SampleRate',fs);
 
-sig1 = filter(bp1, demod);   % 1200 Hz
-sig2 = filter(bp2, demod);   % 2200 Hz
+sig1 = filter(bp1, demod);   % 1200 Hz (bit 1)
+sig2 = filter(bp2, demod);   % 2200 Hz (bit 0)
 
 %% BIT RECOVERY
 bitrate = 1200;

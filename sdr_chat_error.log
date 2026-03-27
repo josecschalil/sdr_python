@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "C:\Users\josec\Desktop\SDR_PYTHON\sdr_chat\radio.py", line 93, in start
+    import adi
+  File "C:\Users\josec\AppData\Local\Programs\Python\Python312\Lib\site-packages\adi\__init__.py", line 5, in <module>
+    from adi.ad2s1210 import ad2s1210
+  File "C:\Users\josec\AppData\Local\Programs\Python\Python312\Lib\site-packages\adi\ad2s1210.py", line 6, in <module>
+    from adi.context_manager import context_manager
+  File "C:\Users\josec\AppData\Local\Programs\Python\Python312\Lib\site-packages\adi\context_manager.py", line 5, in <module>
+    import iio
+  File "C:\Users\josec\AppData\Local\Programs\Python\Python312\Lib\site-packages\iio.py", line 227, in <module>
+    _lib = _cdll(find_library(_iiolib), use_errno=True, use_last_error=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\josec\AppData\Local\Programs\Python\Python312\Lib\ctypes\__init__.py", line 369, in __init__
+    if '/' in name or '\\' in name:
+       ^^^^^^^^^^^
+TypeError: argument of type 'NoneType' is not iterable
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\josec\Desktop\SDR_PYTHON\sdr_chat\gui.py", line 115, in _start_link
+    self.link_manager.start()
+  File "C:\Users\josec\Desktop\SDR_PYTHON\sdr_chat\link.py", line 53, in start
+    self.radio.start(self._handle_samples)
+  File "C:\Users\josec\Desktop\SDR_PYTHON\sdr_chat\radio.py", line 97, in start
+    raise RadioError(
+sdr_chat.radio.RadioError: Pluto dependencies are installed, but the native libiio runtime could not be loaded. On Windows, install Analog Devices libiio/pylibiio support and ensure the libiio DLL is on PATH. Original error: argument of type 'NoneType' is not iterable

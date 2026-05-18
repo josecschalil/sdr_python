@@ -3,7 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
@@ -28,6 +28,19 @@ class LinkEvent:
     packet: LinkPacket | None = None
 
 
+@dataclass(order=True, slots=True)
+class ScheduledPacket:
+    send_at: float
+    packet: LinkPacket = field(compare=False)
+
+
+@dataclass(slots=True)
+class PendingAck:
+    packet: LinkPacket
+    deadline: float
+    retries_left: int
+
+
 class LinkManager:
     def __init__(
         self,
@@ -43,8 +56,15 @@ class LinkManager:
         self.running = False
         self.sequence = 1
         self._seen_sequences: set[tuple[str, int]] = set()
-        self._outbound: queue.Queue[LinkPacket] = queue.Queue()
+        self._outbound: queue.PriorityQueue[ScheduledPacket] = queue.PriorityQueue()
         self._tx_thread: threading.Thread | None = None
+        self._ack_thread: threading.Thread | None = None
+        self._pending_acks: dict[int, PendingAck] = {}
+        self._ack_turnaround_seconds = 0.08
+        self._ack_repeat_count = 3
+        self._ack_repeat_spacing_seconds = 0.08
+        self._ack_timeout_seconds = 1.2
+        self._data_retry_count = 2
         self.last_peer_seen_at: float | None = None
         self.rx_sample_batches = 0
         self.rx_sample_count = 0
@@ -61,7 +81,9 @@ class LinkManager:
         self.running = True
         self.radio.start(self._handle_samples)
         self._tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+        self._ack_thread = threading.Thread(target=self._ack_monitor_loop, daemon=True)
         self._tx_thread.start()
+        self._ack_thread.start()
         if self.config.initial_tx_owner.strip() == self.config.callsign:
             self.state = ChannelState.GRANTED
             self._emit("status", "Startup transmit permission assigned to this station")
@@ -75,6 +97,8 @@ class LinkManager:
         self.radio.stop()
         if self._tx_thread:
             self._tx_thread.join(timeout=1.0)
+        if self._ack_thread:
+            self._ack_thread.join(timeout=1.0)
         self._emit("status", "Link stopped")
 
     def request_tx(self) -> None:
@@ -106,6 +130,7 @@ class LinkManager:
             self._emit("warning", "Request transmit permission before sending data")
             return
         packet = self._queue_packet(PacketType.DATA, payload=text)
+        self._track_pending_ack(packet)
         self._emit("tx", f"You: {text}", packet)
 
     def ping_peer(self) -> None:
@@ -115,17 +140,45 @@ class LinkManager:
     def _tx_loop(self) -> None:
         while self.running:
             try:
-                packet = self._outbound.get(timeout=0.2)
+                scheduled = self._outbound.get(timeout=0.2)
             except queue.Empty:
                 continue
+            now = time.time()
+            if scheduled.send_at > now:
+                time.sleep(min(scheduled.send_at - now, 0.2))
+                self._outbound.put(scheduled)
+                continue
+            packet = scheduled.packet
             try:
                 frame = packet_to_frame(packet).encode()
                 iq = self.modem.modulate(frame)
                 self.radio.transmit(iq)
+                if packet.packet_type == PacketType.ACK:
+                    self._emit("status", f"ACK transmitted for sequence {packet.ack_for}", packet)
             except RadioError as exc:
                 self._emit("error", f"Radio transmit failed: {exc}")
             except Exception as exc:  # pragma: no cover - defensive
                 self._emit("error", f"Unexpected transmit error: {exc}")
+
+    def _ack_monitor_loop(self) -> None:
+        while self.running:
+            now = time.time()
+            for sequence, pending in list(self._pending_acks.items()):
+                if pending.deadline > now:
+                    continue
+                if pending.retries_left <= 0:
+                    self._emit("warning", f"ACK timeout for sequence {sequence}", pending.packet)
+                    self._pending_acks.pop(sequence, None)
+                    continue
+                pending.retries_left -= 1
+                pending.deadline = now + self._ack_timeout_seconds
+                self._enqueue_existing_packet(pending.packet, delay=0.0)
+                self._emit(
+                    "status",
+                    f"ACK timeout for sequence {sequence}, retrying data ({self._data_retry_count - pending.retries_left}/{self._data_retry_count})",
+                    pending.packet,
+                )
+            time.sleep(0.1)
 
     def _handle_samples(self, samples: list[complex]) -> None:
         self.rx_sample_batches += 1
@@ -148,6 +201,8 @@ class LinkManager:
                 continue
             dedupe_key = (packet.source, packet.sequence)
             if packet.sequence and dedupe_key in self._seen_sequences and packet.packet_type == PacketType.DATA:
+                self._emit("status", f"Duplicate data detected from {packet.source}, re-sending ACK", packet)
+                self._schedule_ack(packet.sequence)
                 continue
             if packet.sequence:
                 self._seen_sequences.add(dedupe_key)
@@ -182,7 +237,7 @@ class LinkManager:
 
         if packet.packet_type == PacketType.DATA:
             self._emit("rx", f"{packet.source}: {packet.payload}", packet)
-            self._queue_packet(PacketType.ACK, ack_for=packet.sequence, payload="Message received")
+            self._schedule_ack(packet.sequence)
             return
 
         if packet.packet_type == PacketType.HEARTBEAT:
@@ -195,6 +250,7 @@ class LinkManager:
             return
 
         if packet.packet_type == PacketType.ACK:
+            self._pending_acks.pop(packet.ack_for or -1, None)
             self._emit("ack", f"ACK received for sequence {packet.ack_for}", packet)
             return
 
@@ -216,8 +272,34 @@ class LinkManager:
             timestamp=time.time(),
         )
         self.sequence += 1
-        self._outbound.put(packet)
+        self._enqueue_existing_packet(packet, delay=0.0)
         return packet
+
+    def _enqueue_existing_packet(self, packet: LinkPacket, delay: float) -> None:
+        self._outbound.put(ScheduledPacket(send_at=time.time() + delay, packet=packet))
+
+    def _schedule_ack(self, ack_for: int) -> None:
+        ack_packet = LinkPacket(
+            packet_type=PacketType.ACK,
+            source=self.config.callsign,
+            destination=self.config.peer_callsign,
+            sequence=self.sequence,
+            ack_for=ack_for,
+            payload="Message received",
+            timestamp=time.time(),
+        )
+        self.sequence += 1
+        for repeat in range(self._ack_repeat_count):
+            delay = self._ack_turnaround_seconds + (repeat * self._ack_repeat_spacing_seconds)
+            self._enqueue_existing_packet(ack_packet, delay=delay)
+        self._emit("status", f"ACK queued for sequence {ack_for}", ack_packet)
+
+    def _track_pending_ack(self, packet: LinkPacket) -> None:
+        self._pending_acks[packet.sequence] = PendingAck(
+            packet=packet,
+            deadline=time.time() + self._ack_timeout_seconds,
+            retries_left=self._data_retry_count,
+        )
 
     def _emit(self, kind: str, message: str, packet: LinkPacket | None = None) -> None:
         self.on_event(LinkEvent(kind=kind, message=message, packet=packet))
